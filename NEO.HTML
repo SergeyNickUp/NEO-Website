@@ -1,0 +1,1154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>NeoTerminal V.3.0</title>
+    <style>
+        :root {
+            --bg-color: #050505;
+            --term-color: #0f0;
+            --term-shadow: 0 0 10px rgba(0, 255, 0, 0.7);
+            --err-color: #ff3333;
+            --warn-color: #ffff00;
+            --font-stack: 'Courier New', Courier, monospace;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg-color);
+            color: var(--term-color);
+            font-family: var(--font-stack);
+            overflow: hidden;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            touch-action: manipulation;
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
+            font-smooth: always;
+        }
+
+        .crt-overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), 
+                        linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+            background-size: 100% 2px, 3px 100%;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .screen {
+            width: 95%;
+            height: 90vh;
+            border: 2px solid var(--term-color);
+            box-shadow: var(--term-shadow), inset 0 0 20px rgba(0, 255, 0, 0.2);
+            padding: 16px;
+            overflow-y: auto;
+            position: relative;
+            background-color: rgba(0, 20, 0, 0.9);
+            border-radius: 8px;
+            font-size: 15px;
+            scroll-behavior: smooth;
+            z-index: 2;
+            word-wrap: break-word;
+        }
+
+        .screen::-webkit-scrollbar {
+            width: 8px;
+        }
+        .screen::-webkit-scrollbar-thumb {
+            background: var(--term-color);
+            border-radius: 4px;
+        }
+
+        .output-area {
+            margin-bottom: 16px;
+            white-space: pre-wrap;
+            line-height: 1.5;
+            text-shadow: 0 0 5px var(--term-color);
+            font-size: inherit;
+            word-break: break-word;
+        }
+
+        .input-line {
+            display: flex;
+            align-items: center;
+            margin-top: 12px;
+            position: relative;
+        }
+
+        .prompt {
+            margin-right: 8px;
+            font-weight: bold;
+            white-space: nowrap;
+            font-size: 1.05em;
+        }
+
+        input {
+            background: transparent;
+            border: none;
+            color: var(--term-color);
+            font-family: var(--font-stack);
+            font-size: 18px;
+            flex-grow: 1;
+            outline: none;
+            text-shadow: 0 0 5px var(--term-color);
+            padding: 10px 8px;
+            border-bottom: 2px solid var(--term-color);
+            width: 100%;
+            caret-color: var(--term-color);
+            line-height: 1.2;
+            resize: none;
+        }
+
+        input:focus {
+            border-bottom-width: 3px;
+            padding: 10px 8px;
+        }
+
+        .error { color: var(--err-color); text-shadow: 0 0 5px var(--err-color); }
+        .highlight { color: var(--warn-color); font-weight: bold; }
+        .ascii-art { font-size: 10px; line-height: 10px; white-space: pre; color: var(--term-color); }
+        .success { color: #00ff88; text-shadow: 0 0 5px #00ff88; }
+        .cyan { color: #00ffff; text-shadow: 0 0 5px #00ffff; }
+
+        .output-area a {
+            color: #00ffff;
+            text-decoration: underline;
+            text-shadow: 0 0 5px #00ffff;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            display: inline-block;
+            word-break: break-all;
+        }
+
+        .output-area a:hover {
+            color: #00ff00;
+            text-shadow: 0 0 15px #00ff00, 0 0 25px #00ff00;
+            text-decoration: none;
+            background: rgba(0, 255, 0, 0.1);
+            padding: 2px 4px;
+            border-radius: 3px;
+        }
+
+        /* Mobile optimization */
+        @media (max-height: 500px) {
+            .screen {
+                height: 80vh;
+                padding: 12px;
+            }
+            .input-line {
+                margin-top: 8px;
+            }
+            input {
+                font-size: 20px;
+                padding: 12px 6px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .screen {
+                width: 98%;
+            }
+            .prompt {
+                font-size: 1em;
+            }
+            .ascii-art {
+                font-size: 9px;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="crt-overlay"></div>
+    
+    <div class="screen" id="console-screen" onclick="document.getElementById('cmd-input').focus()">
+        <div id="output" class="output-area"></div>
+        <div class="input-line">
+            <span class="prompt" id="prompt-span">visitor@neoweb:~$</span>
+            <input type="text" id="cmd-input" autocomplete="off" autofocus>
+        </div>
+    </div>
+
+    <script>
+        let currentLang = 'en'; // ✅ BASE LANGUAGE: ENGLISH
+        let currentGame = null;
+        let gameData = {};
+        let matrixInterval = null;
+
+        // Detect device (mobile/desktop)
+        const isMobile = () => {
+            return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        };
+
+        const currentDevice = isMobile() ? 'mobile' : 'pc';
+        document.documentElement.classList.add(currentDevice);
+
+        // Word pools for hangman
+        const wordPool = {
+            en: ['program', 'matrix', 'terminal', 'cyberpunk', 'future', 'computer', 'internet', 'hacker'],
+            ru: ['программа', 'матрица', 'терминал', 'киберпанк', 'будущее', 'компьютер', 'интернет', 'хакер']
+        };
+
+        // Encrypted data strings (used in matrix)
+        const encryptedData = [
+            't.me/', 'https://', 'Nastoyashie', '_Lite',
+            'kovlak', '_x_', 'orig', 't.me/'
+        ];
+
+        // Full localized resources (EN as default, RU fallback)
+        const resources = {
+            en: {
+                welcome: 'Welcome. Type "help" to see available commands.',
+                help_text: 'Available commands: <span class="highlight">about, skills, projects, games, lang, matrix, clear</span>',
+                about: 'Solo developer seeking real, challenging projects — because everyone needs experience. I take on any task. Why pay me if I’m not doing anything? You pay for experience, powerful tools, and a person ready to work for you 24/7 — with room for revisions at any stage, and execution of your most unique ideas.',
+                skills: 'Skills: HTML5, JS (ES6+), CSS3, Node.js, Magic.',
+                projects: '1. NeoTerminal\n2. AI Bot\n3. Secret Project X',
+                unknown: 'Command not found. Type "help".',
+                lang_switched: 'Language switched to English.',
+                esc_reset: 'System rebooted (ESC).',
+                games_list: 'Available games:\n1. <span class="highlight">guess</span> - Guess the Number (1-100)\n2. <span class="highlight">rps</span> - Rock Paper Scissors\n3. <span class="highlight">math</span> - Math Blitz\n4. <span class="highlight">hangman</span> - Hangman (guess the word)\n5. <span class="highlight">memory</span> - Memory Training\n6. <span class="highlight">prime</span> - Prime Number Test\n7. <span class="highlight">blackjack</span> - Blackjack (21)\n8. <span class="highlight">sequence</span> - Number Sequences\n\nType a game name to launch.',
+                game_exit: 'Exiting game...',
+                prompts: {
+                    default: 'visitor@neoweb:~$',
+                    guess: 'GAME(guess) >',
+                    rps: 'GAME(RPS) >',
+                    math: 'GAME(math) >',
+                    hangman: 'GAME(hangman) >',
+                    memory: 'GAME(memory) >',
+                    prime: 'GAME(prime) >',
+                    blackjack: 'GAME(21) >',
+                    sequence: 'GAME(seq) >'
+                },
+                games: {
+                    guess: {
+                        start: 'I thought of a number between 1 and 100. Guess it! (Type "exit" to quit)',
+                        lower: 'My number is lower.',
+                        higher: 'My number is higher.',
+                        win: 'Congrats! You guessed it in {n} attempts!',
+                        nan: 'Please enter a number.'
+                    },
+                    rps: {
+                        start: 'Rock, Paper, Scissors! Type: "r", "p" or "s". (Type "exit" to quit)',
+                        win: 'You won!',
+                        lose: 'You lost!',
+                        draw: 'Draw!',
+                        choice: 'You: {u} | PC: {c}',
+                        invalid: 'Use letters: R, P, S (or К, Н, Б).'
+                    },
+                    math: {
+                        start: 'Math blitz! Solve the expressions. (type "exit" to quit)',
+                        ask: 'Solve: {expr}',
+                        correct: 'Correct! ✓',
+                        wrong: 'Nope, correct answer: {a}',
+                        next: 'Next challenge...',
+                        score: 'Score: {s}'
+                    },
+                    hangman: {
+                        start: 'Hangman! Guess the word letter by letter. (type "exit" to quit)',
+                        word: 'Word: {w}',
+                        lives: 'Lives: {l}',
+                        used: 'Used: {u}',
+                        correct: 'Good guess!',
+                        wrong: 'Wrong letter!',
+                        already: 'Already used!',
+                        win: '🎉 You won! Word: {w}',
+                        lose: '💀 Game over! Word was: {w}',
+                        invalid: 'Enter one letter!'
+                    },
+                    memory: {
+                        start: 'Memory training! Remember the sequence of digits. (type "exit" to quit)',
+                        show: 'Remember: {seq}',
+                        hide: 'Sequence hidden...',
+                        ask: 'Enter the sequence:',
+                        correct: 'Excellent! Next level...',
+                        wrong: 'Wrong! It was: {seq}',
+                        level: 'Level {l}'
+                    },
+                    prime: {
+                        start: 'Determine if the number is prime! (type "exit" to quit)',
+                        ask: 'Is {n} prime? (yes/no)',
+                        correct: 'Correct! ✓',
+                        wrong: 'Wrong! Number {n} is {answer}.',
+                        isprime: 'PRIME',
+                        notprime: 'NOT PRIME',
+                        score: 'Score: {s}'
+                    },
+                    blackjack: {
+                        start: 'Blackjack! Get 21 or close to it. (type "exit" to quit)',
+                        cards: 'Your cards: {cards} = {sum}',
+                        dealer: 'Dealer cards: {cards} = {sum}',
+                        action: 'Hit or Stand?',
+                        bust: '💥 Bust! You lose!',
+                        win: '🎉 You win!',
+                        lose: '😞 Dealer wins!',
+                        draw: '🤝 Draw!',
+                        blackjack: '🃏 BLACKJACK!',
+                        invalid: 'Use: hit or stand'
+                    },
+                    sequence: {
+                        start: 'Continue the number sequence! (type "exit" to quit)',
+                        seq: 'Sequence: {seq}',
+                        ask: 'What number comes next?',
+                        correct: 'Correct! ✓',
+                        wrong: 'Nope! Right answer: {a}',
+                        hint: 'Hint: {hint}',
+                        score: 'Score: {s}'
+                    }
+                }
+            },
+            ru: {
+                welcome: 'Добро пожаловать. Введите "help" для списка команд.',
+                help_text: 'Доступные команды: <span class="highlight">about, skills, projects, games, lang, matrix, clear</span>',
+                about: 'Соло-разработчик, ищущий реальные сложные проекты — ведь всем нужен опыт. Я берусь за любую работу. Зачем платить мне, если я ничего не делаю? Вы платите за опыт, мощные инструменты и человека, готового работать для вас 24/7 — с возможностью вносить правки на любом этапе и реализовывать ваши самые уникальные идеи.',
+                skills: 'Навыки: HTML5, JS (ES6+), CSS3, Node.js, Магия.',
+                projects: '1. NeoTerminal\n2. AI Bot\n3. Секретный проект X',
+                unknown: 'Команда не найдена. Введите "help".',
+                lang_switched: 'Язык переключён на Русский.',
+                esc_reset: 'Система перезапущена (ESC).',
+                games_list: 'Доступные игры:\n1. <span class="highlight">guess</span> - Угадай число (1-100)\n2. <span class="highlight">rps</span> - Камень-Ножницы-Бумага\n3. <span class="highlight">math</span> - Математический блиц\n4. <span class="highlight">hangman</span> - Виселица (угадай слово)\n5. <span class="highlight">memory</span> - Тренировка памяти\n6. <span class="highlight">prime</span> - Определи простое число\n7. <span class="highlight">blackjack</span> - Блэкджек (21)\n8. <span class="highlight">sequence</span> - Числовые последовательности\n\nВведите название игры для запуска.',
+                game_exit: 'Выход из игры...',
+                prompts: {
+                    default: 'visitor@neoweb:~$',
+                    guess: 'GAME(guess) >',
+                    rps: 'GAME(RPS) >',
+                    math: 'GAME(math) >',
+                    hangman: 'GAME(hangman) >',
+                    memory: 'GAME(memory) >',
+                    prime: 'GAME(prime) >',
+                    blackjack: 'GAME(21) >',
+                    sequence: 'GAME(seq) >'
+                },
+                games: {
+                    guess: {
+                        start: 'Я загадал число от 1 до 100. Попробуй угадать! (Введи "exit" для выхода)',
+                        lower: 'Мое число меньше.',
+                        higher: 'Мое число больше.',
+                        win: 'Поздравляю! Ты угадал за {n} попыток!',
+                        nan: 'Пожалуйста, введи число.'
+                    },
+                    rps: {
+                        start: 'Камень, Ножницы, Бумага! Введи: "к", "н" или "б". (Введи "exit" для выхода)',
+                        win: 'Ты победил!',
+                        lose: 'Ты проиграл!',
+                        draw: 'Ничья!',
+                        choice: 'Ты: {u} | Комп: {c}',
+                        invalid: 'Используй буквы: К, Н, Б (или R, P, S).'
+                    },
+                    math: {
+                        start: 'Математический блиц! Решай выражения. (exit — выход)',
+                        ask: 'Реши: {expr}',
+                        correct: 'Правильно! ✓',
+                        wrong: 'Нет, правильный ответ: {a}',
+                        next: 'Следующий пример...',
+                        score: 'Счет: {s}'
+                    },
+                    hangman: {
+                        start: 'Виселица! Угадай слово по буквам. (exit — выход)',
+                        word: 'Слово: {w}',
+                        lives: 'Жизни: {l}',
+                        used: 'Использовано: {u}',
+                        correct: 'Есть такая буква!',
+                        wrong: 'Нет такой буквы!',
+                        already: 'Эта буква уже была!',
+                        win: '🎉 Победа! Слово: {w}',
+                        lose: '💀 Проигрыш! Слово было: {w}',
+                        invalid: 'Введи одну букву!'
+                    },
+                    memory: {
+                        start: 'Тренировка памяти! Запомни последовательность цифр. (exit — выход)',
+                        show: 'Запомни: {seq}',
+                        hide: 'Последовательность скрыта...',
+                        ask: 'Введи последовательность:',
+                        correct: 'Отлично! Переходим к следующему уровню...',
+                        wrong: 'Неправильно! Было: {seq}',
+                        level: 'Уровень {l}'
+                    },
+                    prime: {
+                        start: 'Определи, является ли число простым! (exit — выход)',
+                        ask: 'Число {n} простое? (да/нет)',
+                        correct: 'Верно! ✓',
+                        wrong: 'Неправильно! Число {n} {answer}.',
+                        isprime: 'ПРОСТОЕ',
+                        notprime: 'НЕ ПРОСТОЕ',
+                        score: 'Счет: {s}'
+                    },
+                    blackjack: {
+                        start: 'Блэкджек! Набери 21 или близко к нему. (exit — выход)',
+                        cards: 'Твои карты: {cards} = {sum}',
+                        dealer: 'Карты дилера: {cards} = {sum}',
+                        action: 'Взять карту (hit) или остановиться (stand)?',
+                        bust: '💥 Перебор! Ты проиграл!',
+                        win: '🎉 Ты победил!',
+                        lose: '😞 Дилер победил!',
+                        draw: '🤝 Ничья!',
+                        blackjack: '🃏 БЛЭКДЖЕК!',
+                        invalid: 'Используй: hit или stand (взять/стоп)'
+                    },
+                    sequence: {
+                        start: 'Продолжи числовую последовательность! (exit — выход)',
+                        seq: 'Последовательность: {seq}',
+                        ask: 'Какое число следующее?',
+                        correct: 'Правильно! ✓',
+                        wrong: 'Нет! Правильный ответ: {a}',
+                        hint: 'Подсказка: {hint}',
+                        score: 'Счет: {s}'
+                    }
+                }
+            }
+        };
+
+        const logo = `
+ ███╗   ██╗███████╗ ██████╗ 
+ ████╗  ██║██╔════╝██╔═══██╗
+ ██╔██╗ ██║█████╗  ██║   ██║
+ ██║╚██╗██║██╔══╝  ██║   ██║
+ ██║ ╚████║███████╗╚██████╔╝
+ ╚═╝  ╚═══╝╚══════╝ ╚═════╝ 
+  TERMINAL V.3.0 [EXTENDED GAMES]
+        `;
+
+        const output = document.getElementById('output');
+        const input = document.getElementById('cmd-input');
+        const promptSpan = document.getElementById('prompt-span');
+
+        // Init
+        window.onload = () => {
+            renderStartup();
+            input.focus();
+        };
+
+        // ESC key to reset
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                resetTerminal();
+            }
+        });
+
+        // Handle Enter key
+        input.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                const cmd = this.value.trim();
+                const currentPrompt = promptSpan.innerText;
+                printLine(`${currentPrompt} ${cmd}`, 'highlight');
+                this.value = '';
+
+                if (currentGame) {
+                    processGameInput(cmd);
+                } else {
+                    processCommand(cmd.toLowerCase());
+                }
+                scrollToBottom();
+            }
+        });
+
+        function renderStartup() {
+            output.innerHTML = '';
+            printLine(logo, 'ascii-art');
+            setTimeout(() => {
+                printLine(getText('welcome'));
+                const deviceText = currentDevice === 'mobile' ? '📱 Mobile device' : '🖥️ Desktop';
+                printLine(`Device detected: ${deviceText}`, 'cyan');
+            }, 200);
+        }
+
+        function resetTerminal() {
+            stopMatrixEffect();
+            currentGame = null;
+            gameData = {};
+            promptSpan.innerText = getText('prompts', 'default');
+            renderStartup();
+            setTimeout(() => {
+                printLine(getText('esc_reset'), 'highlight');
+            }, 400);
+        }
+
+        function getText(key, subKey = null) {
+            if (subKey !== null) {
+                return resources[currentLang][key][subKey];
+            }
+            return resources[currentLang][key];
+        }
+
+        function scrollToBottom() {
+            const screen = document.getElementById('console-screen');
+            screen.scrollTop = screen.scrollHeight;
+        }
+
+        function printLine(text, className) {
+            const div = document.createElement('div');
+            if (className) div.classList.add(className);
+            div.innerHTML = text;
+            output.appendChild(div);
+        }
+
+        function processCommand(cmd) {
+            if (!cmd) return;
+
+            const cmdMap = {
+                'help': 'help', 'помощь': 'help',
+                'about': 'about', 'о себе': 'about',
+                'skills': 'skills', 'навыки': 'skills',
+                'projects': 'projects', 'проекты': 'projects',
+                'matrix': 'matrix', 'матрица': 'matrix',
+                'lang': 'lang', 'language': 'lang', 'язык': 'lang',
+                'games': 'games', 'игры': 'games',
+                'clear': 'clear', 'cls': 'clear', 'очистить': 'clear',
+                'guess': 'start_guess', 'угадай': 'start_guess',
+                'rps': 'start_rps', 'кнб': 'start_rps',
+                'math': 'start_math', 'мат': 'start_math', 'математика': 'start_math',
+                'hangman': 'start_hangman', 'виселица': 'start_hangman',
+                'memory': 'start_memory', 'память': 'start_memory',
+                'prime': 'start_prime', 'простые': 'start_prime',
+                'blackjack': 'start_blackjack', '21': 'start_blackjack', 'бж': 'start_blackjack',
+                'sequence': 'start_sequence', 'seq': 'start_sequence', 'последовательность': 'start_sequence'
+            };
+
+            const action = cmdMap[cmd] || 'unknown';
+
+            switch (action) {
+                case 'help':
+                    printLine(getText('help_text'));
+                    break;
+                case 'about':
+                    printLine(getText('about'));
+                    break;
+                case 'skills':
+                    printLine(getText('skills'));
+                    break;
+                case 'projects':
+                    printLine(getText('projects'));
+                    break;
+                case 'games':
+                    printLine(getText('games_list'));
+                    break;
+                case 'clear':
+                    output.innerHTML = '';
+                    break;
+                case 'lang':
+                    currentLang = (currentLang === 'en') ? 'ru' : 'en';
+                    printLine(getText('lang_switched'), 'highlight');
+                    promptSpan.innerText = getText('prompts', currentGame || 'default');
+                    break;
+                case 'matrix':
+                    startMatrixEffect();
+                    break;
+                case 'start_guess':
+                    startGame('guess');
+                    break;
+                case 'start_rps':
+                    startGame('rps');
+                    break;
+                case 'start_math':
+                    startGame('math');
+                    break;
+                case 'start_hangman':
+                    startGame('hangman');
+                    break;
+                case 'start_memory':
+                    startGame('memory');
+                    break;
+                case 'start_prime':
+                    startGame('prime');
+                    break;
+                case 'start_blackjack':
+                    startGame('blackjack');
+                    break;
+                case 'start_sequence':
+                    startGame('sequence');
+                    break;
+                default:
+                    printLine(getText('unknown'), 'error');
+            }
+        }
+
+        function startGame(gameName) {
+            currentGame = gameName;
+            promptSpan.innerText = getText('prompts', gameName);
+
+            if (gameName === 'guess') {
+                gameData = { target: Math.floor(Math.random() * 100) + 1, attempts: 0 };
+                printLine(resources[currentLang].games.guess.start);
+            } 
+            else if (gameName === 'rps') {
+                gameData = {};
+                printLine(resources[currentLang].games.rps.start);
+            }
+            else if (gameName === 'math') {
+                gameData = { score: 0 };
+                printLine(resources[currentLang].games.math.start);
+                nextMathTask();
+            }
+            else if (gameName === 'hangman') {
+                const words = wordPool[currentLang];
+                const word = words[Math.floor(Math.random() * words.length)];
+                gameData = {
+                    word: word,
+                    guessed: Array(word.length).fill('_'),
+                    used: [],
+                    lives: 6
+                };
+                printLine(resources[currentLang].games.hangman.start);
+                showHangmanState();
+            }
+            else if (gameName === 'memory') {
+                gameData = { level: 1 };
+                printLine(resources[currentLang].games.memory.start);
+                nextMemoryLevel();
+            }
+            else if (gameName === 'prime') {
+                gameData = { score: 0 };
+                printLine(resources[currentLang].games.prime.start);
+                nextPrimeChallenge();
+            }
+            else if (gameName === 'blackjack') {
+                gameData = {
+                    playerCards: [],
+                    dealerCards: [],
+                    gameState: 'playing'
+                };
+                printLine(resources[currentLang].games.blackjack.start);
+                dealInitialCards();
+            }
+            else if (gameName === 'sequence') {
+                gameData = { score: 0 };
+                printLine(resources[currentLang].games.sequence.start);
+                nextSequenceChallenge();
+            }
+        }
+
+        function stopGame(silent = false) {
+            currentGame = null;
+            gameData = {};
+            promptSpan.innerText = getText('prompts', 'default');
+            if (!silent) printLine(getText('game_exit'), 'highlight');
+        }
+
+        function processGameInput(input) {
+            const trimmed = input.trim();
+            const lowInput = trimmed.toLowerCase();
+
+            if (lowInput === 'exit' || lowInput === 'выход') {
+                stopGame();
+                return;
+            }
+
+            if (currentGame === 'guess') {
+                handleGuessGame(trimmed);
+            }
+            else if (currentGame === 'rps') {
+                handleRPSGame(lowInput);
+            }
+            else if (currentGame === 'math') {
+                handleMathGame(trimmed);
+            }
+            else if (currentGame === 'hangman') {
+                handleHangmanGame(lowInput);
+            }
+            else if (currentGame === 'memory') {
+                handleMemoryGame(trimmed);
+            }
+            else if (currentGame === 'prime') {
+                handlePrimeGame(lowInput);
+            }
+            else if (currentGame === 'blackjack') {
+                handleBlackjackGame(lowInput);
+            }
+            else if (currentGame === 'sequence') {
+                handleSequenceGame(trimmed);
+            }
+        }
+
+        // GUESS GAME
+        function handleGuessGame(input) {
+            const num = parseInt(input, 10);
+            const txt = resources[currentLang].games.guess;
+
+            if (isNaN(num)) {
+                printLine(txt.nan, 'error');
+                return;
+            }
+
+            gameData.attempts++;
+
+            if (num === gameData.target) {
+                printLine(txt.win.replace('{n}', gameData.attempts), 'success');
+                stopGame();
+            } else if (num < gameData.target) {
+                printLine(txt.higher);
+            } else {
+                printLine(txt.lower);
+            }
+        }
+
+        // RPS GAME
+        function handleRPSGame(input) {
+            const txt = resources[currentLang].games.rps;
+            const char = input.charAt(0);
+            const map = {
+                'r': 'rock', 'p': 'paper', 's': 'scissors',
+                'k': 'rock', 'n': 'scissors', 'b': 'paper',
+                'к': 'rock', 'н': 'scissors', 'б': 'paper'
+            };
+
+            if (!map[char]) {
+                printLine(txt.invalid, 'error');
+                return;
+            }
+
+            const playerMove = map[char];
+            const moves = ['rock', 'paper', 'scissors'];
+            const compMove = moves[Math.floor(Math.random() * 3)];
+
+            printLine(txt.choice.replace('{u}', playerMove).replace('{c}', compMove));
+
+            if (playerMove === compMove) {
+                printLine(txt.draw, 'highlight');
+            } else if (
+                (playerMove === 'rock' && compMove === 'scissors') ||
+                (playerMove === 'paper' && compMove === 'rock') ||
+                (playerMove === 'scissors' && compMove === 'paper')
+            ) {
+                printLine(txt.win, 'success');
+            } else {
+                printLine(txt.lose, 'error');
+            }
+            printLine('---');
+        }
+
+        // MATH GAME
+        function handleMathGame(input) {
+            const txt = resources[currentLang].games.math;
+            if (isNaN(Number(input))) {
+                printLine(resources[currentLang].games.guess.nan, 'error');
+                return;
+            }
+            const userAnswer = Number(input);
+            const correctAnswer = gameData.currentTask.answer;
+
+            if (userAnswer === correctAnswer) {
+                gameData.score++;
+                printLine(txt.correct, 'success');
+            } else {
+                printLine(txt.wrong.replace('{a}', correctAnswer), 'error');
+            }
+            printLine(txt.score.replace('{s}', gameData.score));
+            printLine(txt.next);
+            nextMathTask();
+        }
+
+        function nextMathTask() {
+            const txt = resources[currentLang].games.math;
+            const task = generateMathTask();
+            gameData.currentTask = task;
+            printLine(txt.ask.replace('{expr}', task.expression));
+        }
+
+        function generateMathTask() {
+            const ops = ['+', '-', '×', '÷'];
+            const op = ops[Math.floor(Math.random() * ops.length)];
+            let a = Math.floor(Math.random() * 20) + 1;
+            let b = Math.floor(Math.random() * 20) + 1;
+            let answer;
+            
+            if (op === '+') answer = a + b;
+            if (op === '-') {
+                if (a < b) [a, b] = [b, a];
+                answer = a - b;
+            }
+            if (op === '×') answer = a * b;
+            if (op === '÷') {
+                answer = Math.floor(Math.random() * 15) + 1;
+                a = answer * b;
+            }
+            return { expression: `${a} ${op} ${b}`, answer };
+        }
+
+        // HANGMAN GAME
+        function handleHangmanGame(input) {
+            const txt = resources[currentLang].games.hangman;
+            
+            if (input.length !== 1 || !/[а-яёa-z]/i.test(input)) {
+                printLine(txt.invalid, 'error');
+                return;
+            }
+
+            const letter = input.toLowerCase();
+
+            if (gameData.used.includes(letter)) {
+                printLine(txt.already, 'error');
+                showHangmanState();
+                return;
+            }
+
+            gameData.used.push(letter);
+
+            if (gameData.word.includes(letter)) {
+                printLine(txt.correct, 'success');
+                for (let i = 0; i < gameData.word.length; i++) {
+                    if (gameData.word[i] === letter) {
+                        gameData.guessed[i] = letter;
+                    }
+                }
+            } else {
+                printLine(txt.wrong, 'error');
+                gameData.lives--;
+            }
+
+            if (!gameData.guessed.includes('_')) {
+                printLine(txt.win.replace('{w}', gameData.word), 'success');
+                stopGame(true);
+                return;
+            }
+
+            if (gameData.lives <= 0) {
+                printLine(txt.lose.replace('{w}', gameData.word), 'error');
+                stopGame(true);
+                return;
+            }
+
+            showHangmanState();
+        }
+
+        function showHangmanState() {
+            const txt = resources[currentLang].games.hangman;
+            printLine(txt.word.replace('{w}', gameData.guessed.join(' ')));
+            printLine(txt.lives.replace('{l}', '❤️'.repeat(gameData.lives)));
+            printLine(txt.used.replace('{u}', gameData.used.join(', ') || '-'));
+        }
+
+        // MEMORY GAME
+        function handleMemoryGame(input) {
+            const txt = resources[currentLang].games.memory;
+            
+            if (input === gameData.sequence) {
+                printLine(txt.correct, 'success');
+                gameData.level++;
+                setTimeout(() => nextMemoryLevel(), 500);
+            } else {
+                printLine(txt.wrong.replace('{seq}', gameData.sequence), 'error');
+                stopGame(true);
+            }
+        }
+
+        function nextMemoryLevel() {
+            const txt = resources[currentLang].games.memory;
+            const length = 3 + gameData.level;
+            let sequence = '';
+            for (let i = 0; i < length; i++) {
+                sequence += Math.floor(Math.random() * 10);
+            }
+            gameData.sequence = sequence;
+            
+            printLine(txt.level.replace('{l}', gameData.level), 'highlight');
+            printLine(txt.show.replace('{seq}', sequence));
+            
+            setTimeout(() => {
+                printLine(txt.hide);
+                printLine(txt.ask);
+            }, 2000 + gameData.level * 500);
+        }
+
+        // PRIME GAME
+        function handlePrimeGame(input) {
+            const txt = resources[currentLang].games.prime;
+            const yesWords = ['yes', 'да', 'y', 'д'];
+            const noWords = ['no', 'нет', 'n', 'н'];
+            
+            const userSaysPrime = yesWords.includes(input);
+            const userSaysNotPrime = noWords.includes(input);
+
+            if (!userSaysPrime && !userSaysNotPrime) {
+                printLine('yes/no (да/нет)', 'error');
+                return;
+            }
+
+            const actuallyPrime = isPrime(gameData.currentNumber);
+            const correct = (userSaysPrime && actuallyPrime) || (userSaysNotPrime && !actuallyPrime);
+
+            if (correct) {
+                gameData.score++;
+                printLine(txt.correct, 'success');
+            } else {
+                const answer = actuallyPrime ? txt.isprime : txt.notprime;
+                printLine(txt.wrong.replace('{n}', gameData.currentNumber).replace('{answer}', answer), 'error');
+            }
+
+            printLine(txt.score.replace('{s}', gameData.score));
+            nextPrimeChallenge();
+        }
+
+        function nextPrimeChallenge() {
+            const txt = resources[currentLang].games.prime;
+            const num = Math.floor(Math.random() * 100) + 2;
+            gameData.currentNumber = num;
+            printLine(txt.ask.replace('{n}', num));
+        }
+
+        function isPrime(num) {
+            if (num < 2) return false;
+            if (num === 2) return true;
+            if (num % 2 === 0) return false;
+            for (let i = 3; i <= Math.sqrt(num); i += 2) {
+                if (num % i === 0) return false;
+            }
+            return true;
+        }
+
+        // BLACKJACK GAME
+        function handleBlackjackGame(input) {
+            const txt = resources[currentLang].games.blackjack;
+            const hitWords = ['hit', 'h', 'взять', 'в'];
+            const standWords = ['stand', 's', 'стоп', 'ст'];
+
+            if (gameData.gameState !== 'playing') {
+                stopGame(true);
+                return;
+            }
+
+            if (hitWords.includes(input)) {
+                gameData.playerCards.push(drawCard());
+                const sum = calculateSum(gameData.playerCards);
+                printLine(txt.cards.replace('{cards}', gameData.playerCards.join(', ')).replace('{sum}', sum));
+
+                if (sum > 21) {
+                    printLine(txt.bust, 'error');
+                    stopGame(true);
+                    return;
+                }
+                printLine(txt.action);
+            } else if (standWords.includes(input)) {
+                dealerPlay();
+            } else {
+                printLine(txt.invalid, 'error');
+            }
+        }
+
+        function dealInitialCards() {
+            const txt = resources[currentLang].games.blackjack;
+            gameData.playerCards = [drawCard(), drawCard()];
+            gameData.dealerCards = [drawCard()];
+            
+            const playerSum = calculateSum(gameData.playerCards);
+            printLine(txt.cards.replace('{cards}', gameData.playerCards.join(', ')).replace('{sum}', playerSum));
+            printLine(txt.dealer.replace('{cards}', gameData.dealerCards.join(', ')).replace('{sum}', '?'));
+            
+            if (playerSum === 21) {
+                printLine(txt.blackjack, 'success');
+                stopGame(true);
+                return;
+            }
+            
+            printLine(txt.action);
+        }
+
+        function dealerPlay() {
+            const txt = resources[currentLang].games.blackjack;
+            
+            while (calculateSum(gameData.dealerCards) < 17) {
+                gameData.dealerCards.push(drawCard());
+            }
+
+            const playerSum = calculateSum(gameData.playerCards);
+            const dealerSum = calculateSum(gameData.dealerCards);
+
+            printLine(txt.dealer.replace('{cards}', gameData.dealerCards.join(', ')).replace('{sum}', dealerSum));
+
+            if (dealerSum > 21 || playerSum > dealerSum) {
+                printLine(txt.win, 'success');
+            } else if (playerSum === dealerSum) {
+                printLine(txt.draw, 'highlight');
+            } else {
+                printLine(txt.lose, 'error');
+            }
+
+            stopGame(true);
+        }
+
+        function drawCard() {
+            const cards = [2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 10, 10, 11];
+            return cards[Math.floor(Math.random() * cards.length)];
+        }
+
+        function calculateSum(cards) {
+            let sum = cards.reduce((a, b) => a + b, 0);
+            let aces = cards.filter(c => c === 11).length;
+            
+            while (sum > 21 && aces > 0) {
+                sum -= 10;
+                aces--;
+            }
+            
+            return sum;
+        }
+
+        // SEQUENCE GAME
+        function handleSequenceGame(input) {
+            const txt = resources[currentLang].games.sequence;
+            
+            if (isNaN(Number(input))) {
+                printLine(resources[currentLang].games.guess.nan, 'error');
+                return;
+            }
+
+            const userAnswer = Number(input);
+            const correctAnswer = gameData.currentSequence.next;
+
+            if (userAnswer === correctAnswer) {
+                gameData.score++;
+                printLine(txt.correct, 'success');
+            } else {
+                printLine(txt.wrong.replace('{a}', correctAnswer), 'error');
+            }
+
+            printLine(txt.score.replace('{s}', gameData.score));
+            nextSequenceChallenge();
+        }
+
+        function nextSequenceChallenge() {
+            const txt = resources[currentLang].games.sequence;
+            const seq = generateSequence();
+            gameData.currentSequence = seq;
+            
+            printLine(txt.seq.replace('{seq}', seq.sequence.join(', ')));
+            printLine(txt.hint.replace('{hint}', seq.hint));
+            printLine(txt.ask);
+        }
+
+        function generateSequence() {
+            const types = [
+                {
+                    generate: () => {
+                        const start = Math.floor(Math.random() * 10) + 1;
+                        const step = Math.floor(Math.random() * 5) + 1;
+                        const seq = [start, start + step, start + step * 2, start + step * 3];
+                        return {
+                            sequence: seq,
+                            next: start + step * 4,
+                            hint: `+${step}`
+                        };
+                    }
+                },
+                {
+                    generate: () => {
+                        const start = Math.floor(Math.random() * 3) + 2;
+                        const mult = 2;
+                        const seq = [start, start * mult, start * mult * mult, start * mult * mult * mult];
+                        return {
+                            sequence: seq,
+                            next: start * mult * mult * mult * mult,
+                            hint: `×${mult}`
+                        };
+                    }
+                },
+                {
+                    generate: () => {
+                        const start = Math.floor(Math.random() * 3) + 2;
+                        const seq = [start**2, (start+1)**2, (start+2)**2, (start+3)**2];
+                        return {
+                            sequence: seq,
+                            next: (start+4)**2,
+                            hint: 'n²'
+                        };
+                    }
+                },
+                {
+                    generate: () => {
+                        const a = Math.floor(Math.random() * 5) + 1;
+                        const b = Math.floor(Math.random() * 5) + 1;
+                        const seq = [a, b, a+b, a+2*b];
+                        return {
+                            sequence: seq,
+                            next: 2*a+3*b,
+                            hint: 'a+b'
+                        };
+                    }
+                }
+            ];
+
+            const type = types[Math.floor(Math.random() * types.length)];
+            return type.generate();
+        }
+
+        // Matrix Effect — Works on MOBILE & DESKTOP
+        function generateMatrixLine(includeData = false, dataIndex = -1) {
+            const chars = "01MATRIX";
+            let str = "";
+            const lineLength = 60; // Longer for better display on phones
+            
+            if (includeData && dataIndex >= 0 && dataIndex < encryptedData.length) {
+                const dataPart = encryptedData[dataIndex];
+                const insertPosition = Math.floor(Math.random() * (lineLength - dataPart.length - 10)) + 5;
+                
+                for (let i = 0; i < lineLength; i++) {
+                    if (i >= insertPosition && i < insertPosition + dataPart.length) {
+                        str += dataPart[i - insertPosition];
+                    } else {
+                        str += chars.charAt(Math.floor(Math.random() * chars.length));
+                    }
+                }
+            } else {
+                for (let i = 0; i < lineLength; i++) {
+                    str += chars.charAt(Math.floor(Math.random() * chars.length));
+                }
+            }
+            
+            return str;
+        }
+
+        function startMatrixEffect() {
+            stopMatrixEffect();
+            const message = currentLang === 'en' ? 'Wake up, Neo...' : 'Просыпайся, Нео...';
+            printLine(message, 'highlight');
+            
+            let counter = 0;
+            const dataPositions = [12, 20, 28, 32, 40, 45, 52, 58, 64];
+            let dataIndex = 0;
+            
+            matrixInterval = setInterval(() => {
+                counter++;
+                let str = "";
+                
+                if (dataPositions.includes(counter) && dataIndex < encryptedData.length) {
+                    str = generateMatrixLine(true, dataIndex);
+                    dataIndex++;
+                } else {
+                    str = generateMatrixLine(false);
+                }
+                
+                printLine(str, "ascii-art");
+                scrollToBottom();
+            }, 70); // ✅ Reduced from 50 → 70ms for smoother mobile performance
+            
+            setTimeout(() => {
+                stopMatrixEffect();
+                printLine('---', 'highlight');
+                printLine('>>> DECRYPTING...', 'cyan');
+                setTimeout(() => {
+                    const authorText = currentLang === 'en' ? '🔗 Author:' : '🔗 Автор:';
+                    printLine(authorText, 'success');
+                    const link1 = encryptedData[1] + encryptedData[0] + encryptedData[2] + encryptedData[3];
+                    const link2 = encryptedData[1] + encryptedData[7] + encryptedData[4] + encryptedData[5] + encryptedData[6];
+                    printLine(`   <a href="${link1}" target="_blank">${link1}</a>`, 'cyan');
+                    printLine(`   <a href="${link2}" target="_blank">${link2}</a>`, 'cyan');
+                    printLine('---', 'highlight');
+                }, 800);
+            }, 3400);
+        }
+
+        function stopMatrixEffect() {
+            if (matrixInterval) {
+                clearInterval(matrixInterval);
+                matrixInterval = null;
+            }
+        }
+    </script>
+</body>
+</html>
